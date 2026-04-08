@@ -136,7 +136,3 @@ pandas
 ```
 
 ---
-
-<div align="center">
-  Built with ❤️ · Powered by ChromaDB · OpenAI · Streamlit
-</div>
