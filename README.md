@@ -1,69 +1,142 @@
+# 🧠 DocuMind
 
-# Generative Q&A
+> **Chat with your PDF documents using AI.** Upload any PDF, ask questions in plain English, and get accurate answers grounded in your document — powered by RAG, ChromaDB, and your choice of LLM.
 
-A project leveraging [Pinecone](https://docs.pinecone.io/docs/overview), [LangChain](https://langchain-langchain.vercel.app/), and [OpenAI](https://platform.openai.com/overview) to build a Generative Q&A system using [Retrieval Augmented Generation (RAG)](https://ai.facebook.com/blog/retrieval-augmented-generation-streamlining-the-creation-of-intelligent-natural-language-processing-models/).
+A Retrieval-Augmented Generation (RAG) application focused on PDF document intelligence, with a Streamlit UI and swappable LLM/embedding backends.
 
-## Overview
+---
 
-This project implements a Retrieval-Augmented Generation (RAG) system for answering questions by combining vector-based retrieval with generative AI. The process involves two main steps:
+## Pipeline Overview
 
-1. **Setup the Knowledge Base in Pinecone**
-   - Chunk the content into manageable pieces.
-   - Create vector embeddings from the chunks.
-   - Load embeddings into a Pinecone index for efficient retrieval.
+![Full RAG Pipeline](diagrams/full_pipeline.png)
 
-2. **Question Answering**
-   - Generate a vector embedding for the input question.
-   - Retrieve relevant context from the Pinecone index by finding embeddings similar to the question.
-   - Use OpenAI's API to generate an answer, augmented with the retrieved context.
+DocuMind processes your PDF through five stages:
 
+1. **Data Ingestion** — Upload and parse PDF pages into raw text
+2. **Embedding Layer** — Encode documents into vectors using your chosen model (OpenAI / Chroma Default / Nomic)
+3. **Vector Store** — Persist embeddings in ChromaDB for fast similarity search
+4. **Query Processing** — Embed the user query, retrieve top-K relevant chunks
+5. **LLM Layer → Response Generation** — Augment the query with retrieved context, send to LLM, return answer + source references
 
-## Setup
+---
 
-### 1. Install Dependencies
+## Architecture
 
-Install the required Python packages using the provided requirements file:
+![DocuMind Architecture](diagrams/rag-pdf-simple-arch.png)
 
-```bash
-pip install -r ./setup/requirements.txt
+DocuMind's `SimplePDFProcessor` reads each page with PyPDF2, splits text into overlapping chunks (1000 chars / 200 overlap), and stores them in a per-embedding-model ChromaDB collection tracked across Streamlit `session_state`. Switching embedding models automatically resets the collection to prevent dimension mismatches.
+
+---
+
+## Project Structure
+
+```
+DocuMind/
+├── rag_pdf_simple.py      # 🎯 Main app — PDF upload, Q&A, persistent ChromaDB
+├── rag_streamlit.py       # Streamlit app — CSV demo (space facts)
+├── simple_rag.py          # CLI pipeline — CSV data, interactive model selection
+├── space_facts.csv        # Auto-generated sample data
+└── chroma_db/             # Persisted vector store
 ```
 
-### 2. Configure API Keys
+---
 
-Set up environment variables for Pinecone and OpenAI API keys:
+## Supported Models
 
-```bash
-cp dotenv .env
-vi .env
-```
+| Component | Options |
+|-----------|---------|
+| **LLM** | OpenAI GPT-4o-mini · Ollama Llama 3.2 |
+| **Embeddings** | OpenAI `text-embedding-3-small` (1536-d) · Chroma Default (384-d) · Nomic Embed Text via Ollama (768-d) |
+| **Vector Store** | ChromaDB (in-memory or persistent) |
 
-Edit the `.env` file to include your Pinecone and OpenAI API keys.
+---
 
-### 3. Load Data into Pinecone
+## Quickstart
 
-Use the provided Jupyter notebooks to:
-- Load data into the Pinecone index.
-- Run sample queries to test the setup.
-
-
-## Q&A App (Streamlit)
-
-### Install Dependencies
-
-Ensure all dependencies for the Streamlit app are installed.  
-
-
-### Run the App
-
-Launch the Streamlit application:
+### 1. Install dependencies
 
 ```bash
-streamlit run streamlit-app.py
+pip install streamlit chromadb openai python-dotenv PyPDF2 pandas
 ```
 
+For local models (optional):
+```bash
+# Install Ollama, then pull models
+ollama pull llama3.2
+ollama pull nomic-embed-text
+```
 
+### 2. Set up environment
 
-## Background
+```bash
+echo "OPENAI_API_KEY=sk-..." > .env
+```
 
-This project is inspired by the Retrieval-Augmented Generation (RAG) framework introduced in:  
-Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal, N., … Kiela, D. (2020). Retrieval-Augmented Generation for Knowledgeunion Knowledge-Intensive NLP Tasks. In H. Larochelle, M. Ranzato, R. Hadsell, M. F. Balcan, & H. Lin (Eds.), **Advances in Neural Information Processing Systems** (Vol. 33, pp. 9459–9474). Retrieved from [NeurIPS Proceedings](https://proceedings.neurips.cc/paper_files/paper/2020/file/6b493230205f780e1bc26945df7481e5-Paper.pdf).
+### 3. Run DocuMind
+
+```bash
+# 🎯 Main app — PDF chat
+streamlit run rag_pdf_simple.py
+
+# CSV demo
+streamlit run rag_streamlit.py
+
+# CLI pipeline
+python simple_rag.py
+```
+
+---
+
+## How DocuMind Works
+
+```
+User Query
+   │
+   ▼
+Query Embedding  ──►  ChromaDB similarity search  ──►  Top-K chunks
+                                                            │
+                                                            ▼
+                                              Augmented Prompt (context + query)
+                                                            │
+                                                            ▼
+                                                    LLM → Final Answer
+```
+
+The prompt template keeps the LLM grounded:
+
+```
+Context: <retrieved chunks>
+
+Question: <user query>
+Answer:
+```
+
+If the answer isn't in the context, the model is instructed to say so.
+
+---
+
+## Key Design Decisions
+
+- **Chunking with overlap** — 200-char overlap prevents answers from being split across chunk boundaries
+- **Per-model collections** — ChromaDB uses separate collections per embedding model to avoid dimension mismatches when switching models
+- **Session state management** — Streamlit resets processed files and reinitialises the RAG system when the embedding model changes
+- **Dual LLM backend** — OpenAI and Ollama share the same OpenAI-compatible client interface, making swapping trivial
+
+---
+
+## Requirements
+
+```
+streamlit
+chromadb
+openai
+python-dotenv
+PyPDF2
+pandas
+```
+
+---
+
+<div align="center">
+  Built with ❤️ · Powered by ChromaDB · OpenAI · Streamlit
+</div>
